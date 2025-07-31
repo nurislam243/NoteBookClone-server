@@ -97,6 +97,10 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.send('NotebookClone backend is live!');
+});
+
 // Server Listen
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
