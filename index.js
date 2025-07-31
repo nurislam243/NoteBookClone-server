@@ -2,82 +2,91 @@ const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const multer = require('multer');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
 
-const { extractTextFromPDF } = require('./pdfReader.js');
-const { getEmbeddingFromCohere, getSimilarityScore,  generateAnswerFromCohere } = require('./cohere.js');
+const { extractPagesFromPDF } = require('./pdfReader');
+const { getEmbeddingFromCohere, getSimilarityScore, generateAnswerFromCohere } = require('./cohere');
 
 dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-let pdfDataStorage = {
-  text: "",
-  embedding: null,
-};
+let pdfChunks = [];
 
-// __dirname is available by default in CommonJS, no need for fileURLToPath trick
-
-// Multer setup
 const storage = multer.diskStorage({
   destination: './uploads',
   filename: (req, file, cb) => cb(null, file.originalname),
 });
 const upload = multer({ storage });
 
-// upload api 
+let pdfDataStorage = {
+  pages: [],
+  pageEmbeddings: []
+};
+
+
 app.post('/upload', upload.single('pdf'), async (req, res) => {
   try {
     const filePath = path.join(__dirname, 'uploads', req.file.filename);
-    const text = await extractTextFromPDF(filePath);
-    const embedding = await getEmbeddingFromCohere(text);
+    const pages = await extractPagesFromPDF(filePath);
 
-    pdfDataStorage.text = text;
-    pdfDataStorage.embedding = embedding;
+    pdfChunks = [];
 
-    res.json({ success: true, embedding });
+    for (const { page, text } of pages) {
+      if (text.trim().length === 0) continue;
+
+      const embedding = await getEmbeddingFromCohere(text);
+      pdfChunks.push({ page, text, embedding });
+    }
+
+    // Delete uploaded file after processing
+    fs.unlink(filePath, () => {});
+
+    res.json({ success: true, totalPages: pdfChunks.length });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Something went wrong' });
+    res.status(500).json({ error: 'Something went wrong during PDF processing' });
   }
 });
-
 
 app.post('/api/chat', async (req, res) => {
   const { question } = req.body;
 
-  if (!question) {
-    return res.status(400).json({ error: 'Question is required' });
-  }
-
-  if (!pdfDataStorage.text || !pdfDataStorage.embedding) {
-    return res.status(400).json({ error: 'No PDF uploaded yet' });
-  }
+  if (!question) return res.status(400).json({ error: 'Question is required' });
+  if (pdfChunks.length === 0) return res.status(400).json({ error: 'No PDF uploaded yet' });
 
   try {
     const questionEmbedding = await getEmbeddingFromCohere(question);
-    const similarity = getSimilarityScore(questionEmbedding, pdfDataStorage.embedding);
 
-    let answer;
-    if (similarity > 0.0001) {
-      // REAL AI-GENERATED ANSWER
-      const context = pdfDataStorage.text.slice(0, 3000); // optional truncate
-      answer = await generateAnswerFromCohere(context, question);
-    } else {
-      answer = `Your question is not closely related to the PDF content. [Similarity: ${similarity.toFixed(2)}]`;
+    let bestMatch = null;
+    let bestScore = -1;
+
+    for (const chunk of pdfChunks) {
+      const score = getSimilarityScore(questionEmbedding, chunk.embedding);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = chunk;
+      }
     }
 
-    res.json({ answer });
+    if (!bestMatch) {
+      return res.json({ answer: "No relevant page found.", page: null });
+    }
+
+    const answer = await generateAnswerFromCohere(bestMatch.text, question);
+
+    res.json({
+      answer,
+      page: bestMatch.page,
+    });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Chat processing failed' });
+    res.status(500).json({ error: 'Failed to generate response' });
   }
 });
 
-
-
 app.listen(process.env.PORT, () => {
-  console.log(`Server running on http://localhost:${process.env.PORT}`);
+  console.log(`Server running at http://localhost:${process.env.PORT}`);
 });

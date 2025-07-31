@@ -30,7 +30,7 @@ function getSimilarityScore(vec1, vec2) {
 async function generateAnswerFromCohere(context, question) {
   try {
     const response = await cohere.generate({
-      model: "command-r-plus", // or "command", depending on access
+      model: "command-r-plus",
       prompt: `Context:\n${context}\n\nQuestion: ${question}\nAnswer:`,
       maxTokens: 300,
       temperature: 0.5,
