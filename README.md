@@ -139,7 +139,7 @@ Start  the  server  by  running:
 
 ```bash
 
-npm  start
+npm  run dev
 ```
 
 The  server  will  start  on  http://localhost:<PORT> (default 5000).

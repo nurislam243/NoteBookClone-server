@@ -6,42 +6,51 @@ const path = require('path');
 const fs = require('fs');
 
 const { extractPagesFromPDF } = require('./pdfReader');
-const { getEmbeddingFromCohere, getSimilarityScore, generateAnswerFromCohere } = require('./cohere');
+const {
+  getEmbeddingFromCohere,
+  getSimilarityScore,
+  generateAnswerFromCohere
+} = require('./cohere');
 
 dotenv.config();
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-let pdfChunks = [];
+// Ensure 'uploads' directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir);
+}
 
+// Serve uploaded files statically (if needed)
+app.use('/uploads', express.static(uploadsDir));
+
+// Multer storage config
 const storage = multer.diskStorage({
-  destination: './uploads',
+  destination: uploadsDir,
   filename: (req, file, cb) => cb(null, file.originalname),
 });
 const upload = multer({ storage });
 
-let pdfDataStorage = {
-  pages: [],
-  pageEmbeddings: []
-};
+// To store embeddings in-memory
+let pdfChunks = [];
 
-
+// Upload & process PDF
 app.post('/upload', upload.single('pdf'), async (req, res) => {
   try {
-    const filePath = path.join(__dirname, 'uploads', req.file.filename);
+    const filePath = path.join(uploadsDir, req.file.filename);
     const pages = await extractPagesFromPDF(filePath);
 
     pdfChunks = [];
 
     for (const { page, text } of pages) {
       if (text.trim().length === 0) continue;
-
       const embedding = await getEmbeddingFromCohere(text);
       pdfChunks.push({ page, text, embedding });
     }
 
-    // Delete uploaded file after processing
+    // Remove uploaded file after processing
     fs.unlink(filePath, () => {});
 
     res.json({ success: true, totalPages: pdfChunks.length });
@@ -51,6 +60,7 @@ app.post('/upload', upload.single('pdf'), async (req, res) => {
   }
 });
 
+// Chat with uploaded PDF
 app.post('/api/chat', async (req, res) => {
   const { question } = req.body;
 
@@ -87,6 +97,8 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-app.listen(process.env.PORT, () => {
-  console.log(`Server running at http://localhost:${process.env.PORT}`);
+// Server Listen
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(` Server running at http://localhost:${PORT}`);
 });
