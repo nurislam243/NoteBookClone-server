@@ -61,11 +61,10 @@ The backend server is live and accessible at:
 
   
 
-[https://your-backend-url.example.com](https://your-backend-url.example.com)
+[https://notebookclone-server.onrender.com/](https://notebookclone-server.onrender.com/)
 
   
 
-*Replace the above URL with your actual deployed backend URL.*
 
   
 
